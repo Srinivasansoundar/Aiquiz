@@ -18,9 +18,39 @@ export const useQuiz = () => {
   const [error, setError] = useState(null);
   const [selectedAnswer, setSelectedAnswer] = useState(null);
   const [isQuizStarted, setIsQuizStarted] = useState(false);
+  const [collectionName, setCollectionName] = useState(null);
+  const [uploadStatus, setUploadStatus] = useState(null);
+  const [uploadLoading, setUploadLoading] = useState(false);
 
   /**
-   * Start a new quiz session
+   * Upload and ingest a PDF file
+   */
+  const uploadPDF = useCallback(async (file) => {
+    setUploadLoading(true);
+    setError(null);
+    setUploadStatus("Uploading and processing PDF...");
+
+    try {
+      const response = await quizService.uploadPDF(file);
+
+      if (response.success) {
+        setCollectionName(response.collection_name);
+        setUploadStatus(
+          `✅ PDF processed successfully! (${response.total_chunks} chunks)`
+        );
+      } else {
+        throw new Error(response.error || "Failed to upload PDF");
+      }
+    } catch (err) {
+      setError(err.message || "Failed to upload PDF");
+      setUploadStatus(null);
+    } finally {
+      setUploadLoading(false);
+    }
+  }, []);
+
+  /**
+   * Start a new quiz session with collection name
    */
   const startQuiz = useCallback(async () => {
     setLoading(true);
@@ -28,7 +58,7 @@ export const useQuiz = () => {
     setSelectedAnswer(null);
 
     try {
-      const data = await quizService.startQuiz();
+      const data = await quizService.startQuiz(collectionName);
       setQuizState(data);
       setIsQuizStarted(true);
     } catch (err) {
@@ -36,7 +66,7 @@ export const useQuiz = () => {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [collectionName]);
 
   /**
    * Submit an answer and get the next question
@@ -56,6 +86,19 @@ export const useQuiz = () => {
     }
   }, []);
 
+  const resetUpload = useCallback(() => {
+    setCollectionName(null);
+    setUploadStatus(null);
+    setIsQuizStarted(false);
+    setQuizState({
+      question: null,
+      options: [],
+      hint: null,
+      hint_attempt: 0,
+      status: null,
+    });
+  }, []);
+
   return {
     quizState,
     loading,
@@ -63,7 +106,12 @@ export const useQuiz = () => {
     selectedAnswer,
     setSelectedAnswer,
     isQuizStarted,
+    collectionName,
+    uploadStatus,
+    uploadLoading,
+    uploadPDF,
     startQuiz,
     submitAnswer,
+    resetUpload,
   };
 };

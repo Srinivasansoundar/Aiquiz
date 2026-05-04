@@ -28,6 +28,7 @@ class QuizState(TypedDict):
     is_correct: bool
     hint_attempt: int           
     status: str
+    collection_name: str
     # retrieved_context: List[str]
     hint: str 
 
@@ -43,7 +44,6 @@ def start_session_node(state:QuizState) -> QuizState:
     correctness flag, and user answer).
     """
 
-
     return {
         "current_chunks": [],
         "chunk_cursor": 0,
@@ -53,23 +53,31 @@ def start_session_node(state:QuizState) -> QuizState:
         "hint_attempt": 0,
         "status": "started",
         "hint": "",
+        "collection_name": state.get("collection_name", ""),
     }
 
      
 
 
-CHROMA_DIR = Path(__file__).resolve().parents[2] / "core" / "services" / "chroma_db"
+CHROMA_DIR = Path(__file__).resolve().parents[3] / "chroma_db"
+print(CHROMA_DIR)
 
 def load_next_chunk_node(state: QuizState) -> QuizState: 
     
     client = chromadb.PersistentClient(path=str(CHROMA_DIR))
     
-    # Get available collections
-    collections = client.list_collections()
-    if not collections:
-        raise ValueError("No collections found in ChromaDB. Please ensure data has been ingested.")
+    # Get collection by name or use the first available
+    collection_name = state.get("collection_name")
     
-    collection = collections[0]
+    if collection_name:
+        # Use specified collection
+        collection = client.get_collection(name=collection_name)
+    else:
+        # Fallback to first available collection
+        collections = client.list_collections()
+        if not collections:
+            raise ValueError("No collections found in ChromaDB. Please ensure data has been ingested.")
+        collection = collections[0]
     
     cursor = state.get("chunk_cursor", 0)
     result = collection.get(offset=cursor, limit=2, include=["documents"])
@@ -88,7 +96,8 @@ def load_next_chunk_node(state: QuizState) -> QuizState:
         "current_chunks": docs,
         "chunk_cursor": cursor + len(docs),
         "hint_attempt":0,
-        "hint":""
+        "hint":"",
+        "collection_name": collection_name,
     }
 # {
 #   "ids": [...],

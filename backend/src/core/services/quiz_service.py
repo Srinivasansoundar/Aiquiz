@@ -136,14 +136,27 @@ THREAD_CONFIG = {"configurable": {"thread_id": "single-user-session"}}
 class QuizService:
 
     @staticmethod
-    def start_session() -> Dict[str, Any]:
+    def start_session(collection_name: str = None) -> Dict[str, Any]:
         try:
+            initial_state = {
+                "chunk_cursor": 0, 
+                "status": "started",
+                "collection_name": collection_name or "",
+            }
+            
             quiz_graph.invoke(
-                {"chunk_cursor": 0, "status": "started"},
+                initial_state,
                 config=THREAD_CONFIG
             )
 
             current_state = quiz_graph.get_state(THREAD_CONFIG)
+            # current_state = {
+            #     "values": {...},        # your state data
+            #     "tasks": [...],         # execution steps
+            #     "next": [...],          # next nodes to run
+            #     "config": {...},        # thread/session config
+            # }
+            print(current_state)
 
             if not current_state or not current_state.tasks:
                 return {"status": "completed", "message": "No questions found."}
@@ -170,6 +183,8 @@ class QuizService:
                 Command(resume=answer),
                 config=THREAD_CONFIG
             )
+#             "Resume the graph from where it stopped,
+# and pass this value as the result of the interrupt"
 
             current_state = quiz_graph.get_state(THREAD_CONFIG)
 

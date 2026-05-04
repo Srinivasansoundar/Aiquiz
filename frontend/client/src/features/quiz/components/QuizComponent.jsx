@@ -2,7 +2,7 @@
  * Quiz Component - Main quiz interface with beautiful UI
  */
 
-import React from "react";
+import React, { useRef } from "react";
 import { useQuiz } from "../hooks/useQuiz";
 
 export const QuizComponent = () => {
@@ -13,9 +13,16 @@ export const QuizComponent = () => {
     selectedAnswer,
     setSelectedAnswer,
     isQuizStarted,
+    collectionName,
+    uploadStatus,
+    uploadLoading,
+    uploadPDF,
     startQuiz,
     submitAnswer,
+    resetUpload,
   } = useQuiz();
+
+  const fileInputRef = useRef(null);
 
   const handleAnswerSelect = (option) => {
     setSelectedAnswer(option);
@@ -32,7 +39,22 @@ export const QuizComponent = () => {
   };
 
   const handleRetry = () => {
-    startQuiz();
+    resetUpload();
+  };
+
+  const handleFileSelect = async (event) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      await uploadPDF(file);
+    }
+    // Reset input
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  };
+
+  const handleUploadClick = () => {
+    fileInputRef.current?.click();
   };
 
   // Show loading state
@@ -65,20 +87,72 @@ export const QuizComponent = () => {
     );
   }
 
-  // Show initial state - Generate button
-  if (!isQuizStarted) {
+  // Show initial state - Upload PDF
+  if (!isQuizStarted && !collectionName) {
+    return (
+      <div className="flex justify-center items-center min-h-screen bg-gradient-to-br from-blue-500 to-purple-600 p-4">
+        <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-16 text-center animate-in fade-in duration-500">
+          <div className="text-8xl mb-6">📄</div>
+          <h1 className="text-4xl font-bold text-gray-900 mb-4">AI Quiz Generator</h1>
+          <p className="text-gray-600 text-lg mb-8">Upload a PDF to generate an AI-powered quiz</p>
+          
+          {/* Hidden file input */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".pdf"
+            onChange={handleFileSelect}
+            className="hidden"
+          />
+          
+          {/* Upload button */}
+          <button 
+            className={`w-full font-bold py-4 px-8 rounded-lg text-lg transition-all duration-300 transform hover:-translate-y-1 ${
+              uploadLoading
+                ? "bg-gray-400 text-white cursor-not-allowed"
+                : "bg-gradient-to-r from-blue-500 to-purple-600 text-white hover:shadow-lg"
+            }`}
+            onClick={handleUploadClick}
+            disabled={uploadLoading}
+          >
+            {uploadLoading ? "Processing..." : "📤 Upload PDF"}
+          </button>
+
+          {/* Upload status message */}
+          {uploadStatus && (
+            <div className="mt-4 p-4 bg-green-50 border-l-4 border-green-400 rounded-lg animate-in fade-in duration-300">
+              <p className="text-green-700 text-sm font-medium">{uploadStatus}</p>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // Show state after PDF uploaded - Generate Quiz
+  if (!isQuizStarted && collectionName && !uploadLoading) {
     return (
       <div className="flex justify-center items-center min-h-screen bg-gradient-to-br from-blue-500 to-purple-600 p-4">
         <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-16 text-center animate-in fade-in duration-500">
           <div className="text-8xl mb-6">🎯</div>
-          <h1 className="text-4xl font-bold text-gray-900 mb-4">Welcome to AI Quiz</h1>
-          <p className="text-gray-600 text-lg mb-8">Test your knowledge with our AI-powered quiz system</p>
+          <h1 className="text-4xl font-bold text-gray-900 mb-4">Ready to Quiz!</h1>
+          {/* <p className="text-gray-600 text-lg mb-2">Collection ID:</p>
+          <div className="bg-gray-100 p-3 rounded-lg mb-8 break-all">
+            <p className="text-sm font-mono text-gray-700">{collectionName}</p>
+          </div> */}
+          <p className="text-gray-600 text-base mb-8">Click the button below to start your AI-powered quiz</p>
           <button 
-            className="w-full bg-gradient-to-r from-blue-500 to-purple-600 text-white font-bold py-4 px-8 rounded-lg text-lg hover:shadow-lg transition-all duration-300 transform hover:-translate-y-1"
+            className="w-full bg-gradient-to-r from-blue-500 to-purple-600 text-white font-bold py-4 px-8 rounded-lg text-lg hover:shadow-lg transition-all duration-300 transform hover:-translate-y-1 mb-3"
             onClick={handleGenerateQuiz}
           >
             🚀 Generate Quiz
           </button>
+          {/* <button 
+            className="w-full bg-gray-300 text-gray-700 font-bold py-3 px-8 rounded-lg text-base hover:bg-gray-400 transition-all duration-300 transform hover:-translate-y-1"
+            onClick={handleRetry}
+          >
+            ← Upload Another PDF
+          </button> */}
         </div>
       </div>
     );
