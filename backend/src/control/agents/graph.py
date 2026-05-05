@@ -29,6 +29,8 @@ class QuizState(TypedDict):
     hint_attempt: int           
     status: str
     collection_name: str
+    topic: str  # NEW: Topic name if user selected one
+    topic_chunks: List[str]  # NEW: Pre-fetched chunks for topic
     # retrieved_context: List[str]
     hint: str 
 
@@ -42,6 +44,7 @@ def start_session_node(state:QuizState) -> QuizState:
 
     This initializes the state and resets all counters (cursor, hint attempts,
     correctness flag, and user answer).
+    Preserves topic and topic_chunks if provided (topic-based mode).
     """
 
     return {
@@ -54,6 +57,8 @@ def start_session_node(state:QuizState) -> QuizState:
         "status": "started",
         "hint": "",
         "collection_name": state.get("collection_name", ""),
+        "topic": state.get("topic", ""),  # NEW: Preserve topic if provided
+        "topic_chunks": state.get("topic_chunks", []),  # NEW: Preserve pre-fetched chunks
     }
 
      
@@ -63,41 +68,58 @@ CHROMA_DIR = Path(__file__).resolve().parents[3] / "chroma_db"
 print(CHROMA_DIR)
 
 def load_next_chunk_node(state: QuizState) -> QuizState: 
+    """Load next chunk for question generation.
     
-    client = chromadb.PersistentClient(path=str(CHROMA_DIR))
+    Supports two modes:
+    1. Topic-based: Uses pre-fetched topic_chunks passed from quiz_service
+    2. Normal: Fetches chunks from ChromaDB using cursor pagination
+    """
     
-    # Get collection by name or use the first available
-    collection_name = state.get("collection_name")
+    # Check if we're in topic-based mode
+    topic_chunks = state.get("topic_chunks", [])
     
-    if collection_name:
-        # Use specified collection
-        collection = client.get_collection(name=collection_name)
+    if topic_chunks and len(topic_chunks) > 0:
+        # Topic-based flow: Use pre-fetched topic chunks
+        cursor = state.get("chunk_cursor", 0)
+        
+        # Get next chunk from topic_chunks
+        if cursor < len(topic_chunks):
+            next_chunk = topic_chunks[cursor]
+            docs = [next_chunk]
+            new_cursor = cursor + 1
+        else:
+            # No more chunks available
+            docs = []
+            new_cursor = cursor
     else:
-        # Fallback to first available collection
-        collections = client.list_collections()
-        if not collections:
-            raise ValueError("No collections found in ChromaDB. Please ensure data has been ingested.")
-        collection = collections[0]
+        # Normal flow: Fetch from ChromaDB using cursor pagination
+        client = chromadb.PersistentClient(path=str(CHROMA_DIR))
+        
+        # Get collection by name or use the first available
+        collection_name = state.get("collection_name")
+        
+        if collection_name:
+            # Use specified collection
+            collection = client.get_collection(name=collection_name)
+        else:
+            # Fallback to first available collection
+            collections = client.list_collections()
+            if not collections:
+                raise ValueError("No collections found in ChromaDB. Please ensure data has been ingested.")
+            collection = collections[0]
+        
+        cursor = state.get("chunk_cursor", 0)
+        result = collection.get(offset=cursor, limit=2, include=["documents"])
+        docs = result.get("documents", [])
+        new_cursor = cursor + len(docs)
     
-    cursor = state.get("chunk_cursor", 0)
-    result = collection.get(offset=cursor, limit=2, include=["documents"])
-    docs = result.get("documents", [])
-    
-    # if not docs:
-    #     # No more documents available
-    #     return {
-    #         **state,
-    #         "current_chunks": [],
-    #         "chunk_cursor": cursor
-    #     }
-
     return {
         **state,
         "current_chunks": docs,
-        "chunk_cursor": cursor + len(docs),
-        "hint_attempt":0,
-        "hint":"",
-        "collection_name": collection_name,
+        "chunk_cursor": new_cursor,
+        "hint_attempt": 0,
+        "hint": "",
+        "collection_name": state.get("collection_name", ""),
     }
 # {
 #   "ids": [...],

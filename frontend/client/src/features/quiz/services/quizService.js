@@ -20,7 +20,10 @@ export const quizService = {
         method: "POST",
         body: formData,
       });
-
+      // const response = await fetch(`${API_BASE_URL}/upload-pdf-traditional`, {
+      //   method: "POST",
+      //   body: formData,
+      // });
       if (!response.ok) {
         throw new Error(`Failed to upload PDF: ${response.statusText}`);
       }
@@ -35,13 +38,21 @@ export const quizService = {
   /**
    * Start a new quiz session
    * @param {string} collectionName - The collection name from PDF ingestion
+   * @param {string} topic - Optional topic to generate questions from
+   * @param {number} numChunks - Number of chunks to retrieve for topic (default: 5)
    * @returns {Promise<{question, options, hint, hint_attempt, status}>}
    */
-  startQuiz: async (collectionName = null) => {
+  startQuiz: async (collectionName = null, topic = null, numChunks = 5) => {
     try {
       const url = new URL(`${API_BASE_URL}/start`);
       if (collectionName) {
         url.searchParams.append("collection_name", collectionName);
+      }
+      if (topic) {
+        url.searchParams.append("topic", topic);
+      }
+      if (topic) {
+        url.searchParams.append("num_chunks", numChunks);
       }
 
       const response = await fetch(url.toString(), {

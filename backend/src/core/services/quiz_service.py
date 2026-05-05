@@ -127,7 +127,9 @@
     
 from langgraph.types import Command
 from src.control.agents.graph import create_quiz_graph
-from typing import Dict,List,Any
+from src.core.services.topic_quiz_service import TopicQuizService
+from typing import Dict, List, Any, Optional
+from langsmith import traceable
 # ✅ Created ONCE — MemorySaver persists across start/submit calls
 quiz_graph = create_quiz_graph()
 
@@ -136,13 +138,34 @@ THREAD_CONFIG = {"configurable": {"thread_id": "single-user-session"}}
 class QuizService:
 
     @staticmethod
-    def start_session(collection_name: str = None) -> Dict[str, Any]:
+    @traceable(name="start_quiz_session", description="Initialize a new quiz session")
+    def start_session(collection_name: str = None, topic: Optional[str] = None, 
+                     num_chunks: int = 5) -> Dict[str, Any]:
         try:
             initial_state = {
                 "chunk_cursor": 0, 
                 "status": "started",
                 "collection_name": collection_name or "",
+                "topic": topic,
+                "topic_chunks": [],
             }
+            
+            # If topic is provided, fetch relevant chunks
+            if topic and collection_name:
+                topic_service = TopicQuizService()
+                result = topic_service.search_topics(
+                    collection_name=collection_name,
+                    query=topic,
+                    num_results=num_chunks
+                )
+                
+                if result.get("success"):
+                    # Extract chunk content for the graph to use
+                    chunks = result.get("results", [])
+                    initial_state["topic_chunks"] = [chunk["content"] for chunk in chunks]
+                    print(f"📚 Loaded {len(chunks)} chunks for topic: {topic}")
+                else:
+                    print(f"⚠️ Warning: Could not fetch topic chunks: {result.get('error')}")
             
             quiz_graph.invoke(
                 initial_state,
@@ -156,7 +179,7 @@ class QuizService:
             #     "next": [...],          # next nodes to run
             #     "config": {...},        # thread/session config
             # }
-            print(current_state)
+            # print(current_state)
 
             if not current_state or not current_state.tasks:
                 return {"status": "completed", "message": "No questions found."}
@@ -177,6 +200,7 @@ class QuizService:
             raise RuntimeError(f"Error starting quiz: {e}")
 
     @staticmethod
+    @traceable(name="submit_quiz_answer", description="Submit user answer and get next question")
     def submit_answer(answer: str) -> Dict[str, Any]:
         try:
             quiz_graph.invoke(

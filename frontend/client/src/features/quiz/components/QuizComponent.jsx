@@ -16,8 +16,11 @@ export const QuizComponent = () => {
     collectionName,
     uploadStatus,
     uploadLoading,
+    topicInput,
+    setTopicInput,
     uploadPDF,
     startQuiz,
+    startQuizWithTopic,
     submitAnswer,
     resetUpload,
   } = useQuiz();
@@ -129,30 +132,72 @@ export const QuizComponent = () => {
     );
   }
 
-  // Show state after PDF uploaded - Generate Quiz
+  // Show state after PDF uploaded - Generate Quiz or Quiz with Topic
   if (!isQuizStarted && collectionName && !uploadLoading) {
     return (
       <div className="flex justify-center items-center min-h-screen bg-gradient-to-br from-blue-500 to-purple-600 p-4">
-        <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-16 text-center animate-in fade-in duration-500">
+        <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-12 text-center animate-in fade-in duration-500">
           <div className="text-8xl mb-6">🎯</div>
-          <h1 className="text-4xl font-bold text-gray-900 mb-4">Ready to Quiz!</h1>
-          {/* <p className="text-gray-600 text-lg mb-2">Collection ID:</p>
-          <div className="bg-gray-100 p-3 rounded-lg mb-8 break-all">
-            <p className="text-sm font-mono text-gray-700">{collectionName}</p>
-          </div> */}
-          <p className="text-gray-600 text-base mb-8">Click the button below to start your AI-powered quiz</p>
-          <button 
-            className="w-full bg-gradient-to-r from-blue-500 to-purple-600 text-white font-bold py-4 px-8 rounded-lg text-lg hover:shadow-lg transition-all duration-300 transform hover:-translate-y-1 mb-3"
+          <h1 className="text-4xl font-bold text-gray-900 mb-8">Ready to Quiz!</h1>
+
+          {/* Error message if topic submission fails */}
+          {error && (
+            <div className="mb-6 p-4 bg-red-50 border-l-4 border-red-400 rounded-lg">
+              <p className="text-red-700 text-sm font-medium">{error}</p>
+            </div>
+          )}
+
+          {/* Topic Form */}
+          <div className="mb-8">
+            <label className="block text-gray-700 text-sm font-bold mb-3 text-left">
+              🔍 Search by Topic (Optional)
+            </label>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={topicInput}
+                onChange={(e) => setTopicInput(e.target.value)}
+                onKeyPress={(e) => {
+                  if (e.key === "Enter") {
+                    startQuizWithTopic(topicInput);
+                  }
+                }}
+                placeholder="e.g., CPU Scheduling, Memory Management..."
+                className="flex-1 px-4 py-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 text-sm"
+              />
+              <button
+                onClick={() => startQuizWithTopic(topicInput)}
+                disabled={loading || !topicInput.trim()}
+                className={`px-6 py-3 rounded-lg font-semibold text-white transition-all duration-300 transform hover:-translate-y-1 ${
+                  loading || !topicInput.trim()
+                    ? "bg-gray-400 cursor-not-allowed"
+                    : "bg-gradient-to-r from-blue-500 to-purple-600 hover:shadow-lg"
+                }`}
+              >
+                {loading ? "Loading..." : "Go"}
+              </button>
+            </div>
+          </div>
+
+          {/* Divider */}
+          <div className="relative mb-8">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t-2 border-gray-300"></div>
+            </div>
+            <div className="relative flex justify-center text-sm">
+              <span className="px-2 bg-white text-gray-500 font-medium">or</span>
+            </div>
+          </div>
+
+          {/* Generate Quiz Button */}
+          <p className="text-gray-600 text-sm mb-4">Generate quiz from all content</p>
+          <button
+            className="w-full bg-gradient-to-r from-green-500 to-emerald-600 text-white font-bold py-4 px-8 rounded-lg text-lg hover:shadow-lg transition-all duration-300 transform hover:-translate-y-1 mb-3"
             onClick={handleGenerateQuiz}
+            disabled={loading}
           >
-            🚀 Generate Quiz
+            {loading ? "Loading..." : "🚀 Generate Quiz"}
           </button>
-          {/* <button 
-            className="w-full bg-gray-300 text-gray-700 font-bold py-3 px-8 rounded-lg text-base hover:bg-gray-400 transition-all duration-300 transform hover:-translate-y-1"
-            onClick={handleRetry}
-          >
-            ← Upload Another PDF
-          </button> */}
         </div>
       </div>
     );

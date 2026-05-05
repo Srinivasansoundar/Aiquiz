@@ -21,6 +21,7 @@ export const useQuiz = () => {
   const [collectionName, setCollectionName] = useState(null);
   const [uploadStatus, setUploadStatus] = useState(null);
   const [uploadLoading, setUploadLoading] = useState(false);
+  const [topicInput, setTopicInput] = useState("");
 
   /**
    * Upload and ingest a PDF file
@@ -50,7 +51,7 @@ export const useQuiz = () => {
   }, []);
 
   /**
-   * Start a new quiz session with collection name
+   * Start a new quiz session with collection name (without topic)
    */
   const startQuiz = useCallback(async () => {
     setLoading(true);
@@ -63,6 +64,31 @@ export const useQuiz = () => {
       setIsQuizStarted(true);
     } catch (err) {
       setError(err.message || "Failed to start quiz");
+    } finally {
+      setLoading(false);
+    }
+  }, [collectionName]);
+
+  /**
+   * Start a new quiz session with topic
+   */
+  const startQuizWithTopic = useCallback(async (topic) => {
+    if (!topic.trim()) {
+      setError("Please enter a topic");
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    setSelectedAnswer(null);
+
+    try {
+      const data = await quizService.startQuiz(collectionName, topic, 5);
+      setQuizState(data);
+      setIsQuizStarted(true);
+      setTopicInput("");
+    } catch (err) {
+      setError(err.message || "Failed to start quiz with topic");
     } finally {
       setLoading(false);
     }
@@ -109,8 +135,11 @@ export const useQuiz = () => {
     collectionName,
     uploadStatus,
     uploadLoading,
+    topicInput,
+    setTopicInput,
     uploadPDF,
     startQuiz,
+    startQuizWithTopic,
     submitAnswer,
     resetUpload,
   };
