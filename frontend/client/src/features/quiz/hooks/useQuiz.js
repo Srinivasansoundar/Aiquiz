@@ -12,6 +12,8 @@ export const useQuiz = () => {
     hint: null,
     hint_attempt: 0,
     status: null,
+    difficulty: null,
+    topic: null,
   });
 
   const [loading, setLoading] = useState(false);
@@ -22,6 +24,7 @@ export const useQuiz = () => {
   const [uploadStatus, setUploadStatus] = useState(null);
   const [uploadLoading, setUploadLoading] = useState(false);
   const [topicInput, setTopicInput] = useState("");
+  const [quizReport, setQuizReport] = useState(null);
 
   /**
    * Upload and ingest a PDF file
@@ -122,7 +125,82 @@ export const useQuiz = () => {
       hint: null,
       hint_attempt: 0,
       status: null,
+      difficulty: null,
     });
+  }, []);
+
+  /**
+   * Go back to topic selection without clearing the uploaded PDF
+   */
+  const goBackToTopicSelection = useCallback(() => {
+    setIsQuizStarted(false);
+    setQuizState({
+      question: null,
+      options: [],
+      hint: null,
+      hint_attempt: 0,
+      status: null,
+      difficulty: null,
+    });
+    setSelectedAnswer(null);
+    setError(null);
+  }, []);
+
+  /**
+   * Delete the collection and go back to upload PDF page
+   */
+  const deleteCollectionAndReset = useCallback(async () => {
+    try {
+      if (collectionName) {
+        await quizService.deleteCollection(collectionName);
+      }
+      // Reset all state
+      resetUpload();
+    } catch (err) {
+      console.error("Error deleting collection:", err);
+      // Still reset even if deletion fails
+      resetUpload();
+    }
+  }, [collectionName]);
+
+  /**
+   * Fetch the quiz report after quiz completion
+   */
+  const fetchQuizReport = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      const response = await quizService.getReport();
+      
+      if (response.success) {
+        setQuizReport(response.report);
+      } else {
+        throw new Error(response.error || "Failed to fetch report");
+      }
+    } catch (err) {
+      setError(err.message || "Failed to fetch report");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  /**
+   * Reset and start a new quiz
+   */
+  const startNewQuiz = useCallback(() => {
+    setQuizReport(null);
+    setIsQuizStarted(false);
+    setQuizState({
+      question: null,
+      options: [],
+      hint: null,
+      hint_attempt: 0,
+      status: null,
+      difficulty: null,
+    });
+    setSelectedAnswer(null);
+    setError(null);
   }, []);
 
   return {
@@ -137,10 +215,15 @@ export const useQuiz = () => {
     uploadLoading,
     topicInput,
     setTopicInput,
+    quizReport,
     uploadPDF,
     startQuiz,
     startQuizWithTopic,
     submitAnswer,
     resetUpload,
+    goBackToTopicSelection,
+    deleteCollectionAndReset,
+    fetchQuizReport,
+    startNewQuiz,
   };
 };

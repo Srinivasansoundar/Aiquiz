@@ -31,13 +31,22 @@ class QuizState(TypedDict):
     collection_name: str
     topic: str  # NEW: Topic name if user selected one
     topic_chunks: List[str]  # NEW: Pre-fetched chunks for topic
+    topic_from_chunk: str  # Topic extracted from chunk metadata
     # retrieved_context: List[str]
-    hint: str 
+    hint: str
+    current_difficulty: str  # "easy", "medium", or "hard"
+    correct_count_at_difficulty: int  # Track consecutive correct answers at current difficulty
+    # NEW: Quiz tracking for report generation
+    quiz_history: List[Dict]  # List of all questions, answers, and results
+    question_count: int  # Total number of questions asked
+    wrong_on_first_try_count: int  # Number of questions answered incorrectly on first attempt
+    wrong_on_first_try_for_current_question: bool  # Tracks if current question was wrong on first attempt
 
 class QuestionResponse(BaseModel):
     question:str
     options:list[str]
     correct_answer:str
+    difficulty:str  # "easy", "medium", or "hard"
 
 def start_session_node(state:QuizState) -> QuizState:
     """Create and return a fresh QuizState for a new session.
@@ -45,6 +54,7 @@ def start_session_node(state:QuizState) -> QuizState:
     This initializes the state and resets all counters (cursor, hint attempts,
     correctness flag, and user answer).
     Preserves topic and topic_chunks if provided (topic-based mode).
+    Starts with EASY difficulty level.
     """
 
     return {
@@ -59,6 +69,14 @@ def start_session_node(state:QuizState) -> QuizState:
         "collection_name": state.get("collection_name", ""),
         "topic": state.get("topic", ""),  # NEW: Preserve topic if provided
         "topic_chunks": state.get("topic_chunks", []),  # NEW: Preserve pre-fetched chunks
+        "topic_from_chunk": "",  # Topic extracted from chunk metadata
+        "current_difficulty": "easy",  # Start with easy questions
+        "correct_count_at_difficulty": 0,  # Track correct answers at current difficulty
+        # NEW: Initialize quiz tracking
+        "quiz_history": [],  # Will accumulate all questions and answers
+        "question_count": 0,  # Total questions asked
+        "wrong_on_first_try_count": 0,  # Questions answered incorrectly on first try
+        "wrong_on_first_try_for_current_question": False,  # Tracks if current question was wrong on first attempt
     }
 
      
@@ -109,9 +127,34 @@ def load_next_chunk_node(state: QuizState) -> QuizState:
             collection = collections[0]
         
         cursor = state.get("chunk_cursor", 0)
-        result = collection.get(offset=cursor, limit=2, include=["documents"])
+        result = collection.get(offset=cursor, limit=2, include=["documents","metadatas"])
         docs = result.get("documents", [])
+        metadatas = result.get("metadatas", [])
         new_cursor = cursor + len(docs)
+        
+        # Extract topic from metadata if available
+        topic_from_chunk = ""
+        if metadatas and len(metadatas) > 0:
+            chunk1_topic = metadatas[0].get("topic", "").strip()
+            chunk2_topic = metadatas[1].get("topic", "").strip() if len(metadatas) > 1 else ""
+            
+            # If first chunk has valid topic (not "General"), use it
+            if chunk1_topic and chunk1_topic != "General":
+                # Combine with second chunk topic if different and not "General"
+                if chunk2_topic and chunk2_topic != chunk1_topic and chunk2_topic != "General":
+                    topic_from_chunk = f"{chunk1_topic}&{chunk2_topic}"
+                else:
+                    topic_from_chunk = chunk1_topic
+            # If first chunk is "General" or empty, use second chunk topic
+            elif chunk2_topic and chunk2_topic != "General":
+                topic_from_chunk = chunk2_topic
+    if state.get("hint_attempt")==3:
+        if state.get("current_difficulty")=="medium":
+            state["current_difficulty"]="easy"
+        elif state.get("current_difficulty")=="hard":
+            state["current_difficulty"]="medium"
+        else:
+            state["current_difficulty"]="easy"   
     
     return {
         **state,
@@ -120,6 +163,7 @@ def load_next_chunk_node(state: QuizState) -> QuizState:
         "hint_attempt": 0,
         "hint": "",
         "collection_name": state.get("collection_name", ""),
+        "topic_from_chunk": topic_from_chunk if not topic_chunks else state.get("topic_from_chunk", ""),
     }
 # {
 #   "ids": [...],
@@ -130,9 +174,13 @@ def load_next_chunk_node(state: QuizState) -> QuizState:
 
 def generate_question_node(state: QuizState) -> QuizState:
     """Generate a multiple-choice question from the current chunks using the LLM
-    with structured output, and update the state with the generated question.
-    """
+    with structured output based on current difficulty level.
     
+    Difficulty Levels:
+    - easy: Basic recall of facts, definitions, or simple concepts
+    - medium: Understanding relationships, applications, or deeper analysis
+    - hard: Critical thinking, synthesis, complex problem-solving
+    """
     
     llm_structured_output = llm.with_structured_output(QuestionResponse)
     chunks = state.get("current_chunks", [])
@@ -141,23 +189,43 @@ def generate_question_node(state: QuizState) -> QuizState:
     
     # Join chunks into context
     context = "\n".join(chunks)
+    current_difficulty = state.get("current_difficulty", "easy")
     
-    # Create a prompt that instructs the LLM to generate a question
-    prompt = f"""Based on the following text content, generate a multiple-choice question with 4 options and identify the correct answer.
+    # Create difficulty-specific prompts
+    difficulty_prompts = {
+        "easy": """Based on the following text content, generate a SIMPLE multiple-choice question that tests BASIC RECALL of facts, definitions, or key concepts. The question should be straightforward and directly answerable from the text.
 
 Content:
 {context}
 
-Generate a question that tests understanding of the content. Return the question, 4 options, and the correct answer."""
+Generate an EASY question with 4 options and identify the correct answer.""",
+        
+        "medium": """Based on the following text content, generate a MODERATE multiple-choice question that tests UNDERSTANDING and APPLICATION of concepts. The question should require understanding relationships, drawing simple conclusions, or applying concepts.
 
+Content:
+{context}
+
+Generate a MEDIUM difficulty question with 4 options and identify the correct answer.""",
+        
+        "hard": """Based on the following text content, generate a CHALLENGING multiple-choice question that tests CRITICAL THINKING, SYNTHESIS, and DEEPER ANALYSIS. The question should require connecting ideas, analyzing implications, or solving complex problems.
+
+Content:
+{context}
+
+Generate a HARD difficulty question with 4 options and identify the correct answer."""
+    }
+    
+    prompt = difficulty_prompts.get(current_difficulty, difficulty_prompts["easy"]).format(context=context)
+    
     # Invoke the LLM with structured output
     response = llm_structured_output.invoke(prompt)
     
-    # Update state with the generated question
+    # Update state with the generated question including difficulty
     state["current_question"] = {
         "question": response.question,
         "options": response.options,
         "correct_answer": response.correct_answer,
+        "difficulty": response.difficulty,
     }
     state["user_answer"] = ""
     state["is_correct"] = False
@@ -169,11 +237,13 @@ def await_user_answer(state: QuizState) -> QuizState:
     
     LangGraph will pause at this node and wait for external input before resuming.
     The user's answer is provided through the POST /answer endpoint.
-    Sends question, options, hint (if any), and attempt info to frontend.
+    Sends question, options, hint (if any), attempt info, difficulty, and topic from metadata to frontend.
     """
     question_data = state.get("current_question", {})
     hint = state.get("hint", "")
     hint_attempt = state.get("hint_attempt", 0)
+    current_difficulty = state.get("current_difficulty", "easy")
+    topic_from_chunk = state.get("topic_from_chunk", "")
     
     # Prepare data to send to the client
     interrupt_data = {
@@ -181,6 +251,8 @@ def await_user_answer(state: QuizState) -> QuizState:
         "options": question_data.get("options", []),
         "hint": hint,
         "hint_attempt": hint_attempt,
+        "difficulty": current_difficulty,
+        "topic": topic_from_chunk,
     }
     
     # Call interrupt() to pause the graph and wait for user input
@@ -197,6 +269,8 @@ def evaluator_answer_node(state: QuizState) -> QuizState:
     
     Compares user_answer with the correct_answer from current_question.
     Sets is_correct flag in state.
+    Tracks if answer was wrong on first try (when hint_attempt == 0).
+    Once marked as wrong on first try, this flag persists even if user gets hints and answers correctly later.
     """
    
     
@@ -206,6 +280,14 @@ def evaluator_answer_node(state: QuizState) -> QuizState:
     # Check if answer is correct
     is_correct = user_answer == correct_answer
     
+    # Track if this is wrong on first try (before any hints)
+    # Only set this flag on the FIRST wrong attempt (hint_attempt == 0)
+    hint_attempt = state.get("hint_attempt", 0)
+    if not is_correct and hint_attempt == 0:
+        # Mark this question as answered wrong on first try
+        state["wrong_on_first_try_for_current_question"] = True
+        state["wrong_on_first_try_count"] = state.get("wrong_on_first_try_count", 0) + 1
+    
     state["is_correct"] = is_correct
     
     return state
@@ -214,33 +296,32 @@ def evaluator_answer_node(state: QuizState) -> QuizState:
 def route_based_answer(state: QuizState) -> str:
     """Route to next node based on whether answer is correct and attempt count.
     
-    Tracks wrong attempts:
-    - 1st attempt (hint_attempt=0): Generate general hint → show hint → await answer
-    - 2nd attempt (hint_attempt=1): Generate specific hint → show hint → await answer
-    - 3rd attempt (hint_attempt=2): Show correct answer → move to next chunk
+    Handles difficulty progression:
+    - Correct answer: Increment consecutive correct count
+      - If 2+ consecutive correct at current level → advance to next difficulty
+      - Otherwise → move to next question at same difficulty
+    - Wrong answer: Reset consecutive count, show hints (max 3 attempts)
+    
+    Difficulty progression: easy → medium → hard
     
     Returns:
-        "load_next_chunk_node" if answer is correct
+        "record_answer_to_history" to record the answer before moving on
         "generate_hint_node" if answer is incorrect (on attempts 1-3)
     """
-    
     
     is_correct = state.get("is_correct", False)
     hint_attempt = state.get("hint_attempt", 0)
     
     if is_correct:
-        # Reset hint attempt for next question
-        # state["hint_attempt"] = 0
-        return "load_next_chunk_node"
+        # Answer is correct - record it and check for difficulty progression
+        return "record_answer_to_history"
     else:
         # Answer is incorrect, increment attempt and generate hint
         if hint_attempt < 3:
-            # state["hint_attempt"] = hint_attempt + 1
             return "generate_hint_node"
         else:
-            # After 3 wrong attempts, move to next chunk
-            # state["hint_attempt"] = 0
-            return "load_next_chunk_node"
+            # After 3 wrong attempts, record as wrong and move to next question
+            return "record_answer_to_history"
 
 
 # def retrieve_context_node(state: QuizState) -> QuizState:
@@ -353,6 +434,8 @@ Provide a specific hint that points to the right direction without revealing the
     else:  # hint_attempt >= 3
         # Third wrong attempt: Give the direct answer
         state["hint"] = f"The correct answer is: {correct_answer}"
+        state["correct_count_at_difficulty"] = -1
+        # state["current_difficulty"]="easy"
         return state
     
     # Invoke LLM for hint generation
@@ -378,6 +461,67 @@ def end_session_node(state: QuizState) -> QuizState:
     return state
 
 
+def record_answer_to_history(state: QuizState) -> QuizState:
+    """Record the current question and answer to the quiz history.
+    
+    Adds a complete record of the question, user's answer, and result to quiz_history.
+    Increments question_count.
+    """
+    
+    question_record = {
+        "question_num": state.get("question_count", 0) + 1,
+        "question": state.get("current_question", {}).get("question", ""),
+        "options": state.get("current_question", {}).get("options", []),
+        "correct_answer": state.get("current_question", {}).get("correct_answer", ""),
+        "user_answer": state.get("user_answer", ""),
+        "is_correct": state.get("is_correct", False) and state.get("hint_attempt")==0,
+        "wrong_on_first_try": state.get("wrong_on_first_try_for_current_question", False),
+        "difficulty": state.get("current_difficulty", "easy"),
+        "topic": state.get("topic_from_chunk", ""),
+    }
+    
+    # Add to quiz history
+    quiz_history = state.get("quiz_history", [])
+    quiz_history.append(question_record)
+    
+    state["quiz_history"] = quiz_history
+    state["question_count"] = state.get("question_count", 0) + 1
+    
+    # Reset flags for next question
+    if not state.get("is_correct", False):
+        state["hint_attempt"] = 0
+    state["wrong_on_first_try_for_current_question"] = False
+    
+    return state
+
+
+def check_difficulty_progression(state: QuizState) -> QuizState:
+    """Check and handle difficulty progression after correct answer.
+    
+    Progression rules:
+    - Increment consecutive correct count
+    - If 2+ consecutive correct:
+      - Advance to next difficulty (easy→medium→hard)
+      - Reset counter for new difficulty
+    - Stay at current difficulty if < 2 consecutive correct
+    """
+    current_difficulty = state.get("current_difficulty", "easy")
+    correct_count = state.get("correct_count_at_difficulty", 0) + 1
+    
+    difficulty_levels = ["easy", "medium", "hard"]
+    current_index = difficulty_levels.index(current_difficulty)
+    
+    # Advance to next difficulty after 2 consecutive correct answers
+    if correct_count >= 2 and current_index < len(difficulty_levels) - 1:
+        state["current_difficulty"] = difficulty_levels[current_index + 1]
+        state["correct_count_at_difficulty"] = 0
+        print(f"✅ Advancing to {state['current_difficulty']} difficulty!")
+    else:
+        state["correct_count_at_difficulty"] = correct_count
+    
+    return state
+
+
 def check_chunks_available(state: QuizState) -> str:
     """Check if more chunks are available to process.
     
@@ -393,10 +537,16 @@ def check_chunks_available(state: QuizState) -> str:
         return "generate_question"
     else:
         return "end_session"
+    
+def route_after_recording(state: QuizState) -> str:
+        if state.get("is_correct", False):
+            return "check_difficulty_progression"
+        else:
+            return "load_next_chunk"
 from langgraph.graph import StateGraph, END
 
 def create_quiz_graph():
-    """Create and return the compiled LangGraph workflow for the quiz agent."""
+    """Create and return the compiled LangGraph workflow for the quiz agent with difficulty progression."""
     
     # Initialize StateGraph with QuizState
     graph = StateGraph(QuizState)
@@ -408,6 +558,8 @@ def create_quiz_graph():
     graph.add_node("await_user_answer", await_user_answer)
     graph.add_node("evaluator_answer", evaluator_answer_node)
     graph.add_node("generate_hint", generate_hint_node)
+    graph.add_node("record_answer_to_history", record_answer_to_history)
+    graph.add_node("check_difficulty_progression", check_difficulty_progression)
     graph.add_node("end_session", end_session_node)
     
     # Add edges
@@ -438,10 +590,30 @@ def create_quiz_graph():
         "evaluator_answer",
         route_based_answer,
         {
-            "load_next_chunk_node": "load_next_chunk",
+            "record_answer_to_history": "record_answer_to_history",
             "generate_hint_node": "generate_hint",
+            "load_next_chunk_node": "record_answer_to_history",
         }
     )
+    
+    # After recording, check if answer was correct
+    # def route_after_recording(state: QuizState) -> str:
+    #     if state.get("is_correct", False):
+    #         return "check_difficulty_progression"
+    #     else:
+    #         return "load_next_chunk"
+    
+    graph.add_conditional_edges(
+        "record_answer_to_history",
+        route_after_recording,
+        {
+            "check_difficulty_progression": "check_difficulty_progression",
+            "load_next_chunk": "load_next_chunk",
+        }
+    )
+    
+    # After checking difficulty progression, load next question
+    graph.add_edge("check_difficulty_progression", "load_next_chunk")
     
     # After generating hint, ask user again
     graph.add_edge("generate_hint", "await_user_answer")

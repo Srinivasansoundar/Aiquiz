@@ -9,7 +9,8 @@ from src.core.services.traditional_pdf_upload_service import TraditionalPDFUploa
 from src.core.services.topic_quiz_service import TopicQuizService
 from src.schemas.quiz_schema import (
     SubmitAnswerRequest, QuizResponse, PDFIngestionResponse,
-    TopicRequest, TopicContentResponse, TopicSearchRequest, TopicSearchResponse
+    TopicRequest, TopicContentResponse, TopicSearchRequest, TopicSearchResponse,
+    QuizReport, QuizReportResponse
 )
 
 
@@ -33,7 +34,7 @@ async def start_quiz_session(collection_name: Optional[str] = None,
         topic: Optional topic to generate questions from (if not provided, generates from all content)
         num_chunks: Number of chunks to retrieve for topic (default: 5)
     
-    Returns the first question.
+    Returns the first question with difficulty level.
     """
     try:
         result = QuizService.start_session(
@@ -48,6 +49,8 @@ async def start_quiz_session(collection_name: Optional[str] = None,
             hint=result.get("hint"),
             hint_attempt=result.get("hint_attempt"),
             status=result.get("status"),
+            difficulty=result.get("difficulty"),
+            topic=result.get("topic"),
         )
         
     except Exception as e:
@@ -58,7 +61,7 @@ async def start_quiz_session(collection_name: Optional[str] = None,
 async def submit_answer(request: SubmitAnswerRequest) -> QuizResponse:
     """Submit an answer and get the next question or completion status.
     
-    Returns next question, hint (if wrong), or completion message.
+    Returns next question with difficulty level, hint (if wrong), or completion message.
     """
     try:
         result = QuizService.submit_answer(request.answer)
@@ -69,11 +72,9 @@ async def submit_answer(request: SubmitAnswerRequest) -> QuizResponse:
             hint=result.get("hint"),
             hint_attempt=result.get("hint_attempt"),
             status=result.get("status"),
-            # message=result.get("message"),
-            # total_chunks_processed=result.get("total_chunks_processed"),
-            # total_questions=result.get("total_questions"),
+            difficulty=result.get("difficulty"),
+            topic=result.get("topic"),
         )
-        
     except RuntimeError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -277,4 +278,78 @@ async def search_topics(request: TopicSearchRequest) -> TopicSearchResponse:
         raise HTTPException(
             status_code=500, 
             detail=f"Error searching topics: {str(e)}"
+        )
+
+
+@router.delete("/delete-collection/{collection_name}")
+async def delete_collection(collection_name: str) -> dict:
+    """Delete a collection from ChromaDB.
+    
+    Args:
+        collection_name: Name of the collection to delete
+    
+    Returns:
+        Success message
+    """
+    try:
+        import chromadb
+        from pathlib import Path
+        
+        # Get ChromaDB directory
+        chroma_dir = Path(__file__).resolve().parents[4] / "chroma_db"
+        
+        # Connect to ChromaDB
+        client = chromadb.PersistentClient(path=str(chroma_dir))
+        
+        # Delete collection
+        client.delete_collection(name=collection_name)
+        
+        return {
+            "success": True,
+            "message": f"Collection '{collection_name}' deleted successfully"
+        }
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Error deleting collection: {str(e)}"
+        )
+
+
+@router.get("/report", response_model=QuizReportResponse)
+async def get_quiz_report() -> QuizReportResponse:
+    """Get the report for the current completed quiz session.
+    
+    Returns a comprehensive report including:
+    - Total score and percentage
+    - Number of questions answered incorrectly on first try
+    - All questions with user answers and correct answers
+    - For topic-based quiz: Shows the selected topic
+    - For general quiz: Shows strong topics (≥70%) and weak topics (<50%)
+    
+    Strong Topics: Topics where user scored 70% or higher
+    Weak Topics: Topics where user scored below 50%
+    
+    Returns:
+        QuizReportResponse with full report data
+    """
+    try:
+        result = QuizService.get_quiz_report()
+        
+        if result.get("success"):
+            report = result.get("report", {})
+            return QuizReportResponse(
+                success=True,
+                report=report
+            )
+        else:
+            return QuizReportResponse(
+                success=False,
+                error=result.get("error", "Unknown error")
+            )
+            
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Error retrieving report: {str(e)}"
         )

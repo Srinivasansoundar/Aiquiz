@@ -2,8 +2,9 @@
  * Quiz Component - Main quiz interface with beautiful UI
  */
 
-import React, { useRef } from "react";
+import React, { useRef, useEffect } from "react";
 import { useQuiz } from "../hooks/useQuiz";
+import { QuizReportComponent } from "./QuizReportComponent";
 
 export const QuizComponent = () => {
   const {
@@ -18,12 +19,24 @@ export const QuizComponent = () => {
     uploadLoading,
     topicInput,
     setTopicInput,
+    quizReport,
     uploadPDF,
     startQuiz,
     startQuizWithTopic,
     submitAnswer,
     resetUpload,
+    goBackToTopicSelection,
+    deleteCollectionAndReset,
+    fetchQuizReport,
+    startNewQuiz,
   } = useQuiz();
+
+  // Fetch report when quiz is completed
+  useEffect(() => {
+    if (quizState.status === "completed" && !quizReport) {
+      fetchQuizReport();
+    }
+  }, [quizState.status, quizReport, fetchQuizReport]);
 
   const fileInputRef = useRef(null);
 
@@ -58,6 +71,35 @@ export const QuizComponent = () => {
 
   const handleUploadClick = () => {
     fileInputRef.current?.click();
+  };
+
+  // Get difficulty badge styling
+  const getDifficultyStyles = (difficulty) => {
+    const baseClasses = "text-white text-xs font-bold uppercase tracking-wider py-2 px-4 rounded-full";
+    switch (difficulty?.toLowerCase()) {
+      case "easy":
+        return `${baseClasses} bg-green-500 bg-opacity-90`;
+      case "medium":
+        return `${baseClasses} bg-yellow-500 bg-opacity-90`;
+      case "hard":
+        return `${baseClasses} bg-red-500 bg-opacity-90`;
+      default:
+        return `${baseClasses} bg-blue-600 bg-opacity-90`;
+    }
+  };
+
+  // Get difficulty emoji
+  const getDifficultyEmoji = (difficulty) => {
+    switch (difficulty?.toLowerCase()) {
+      case "easy":
+        return "🟢";
+      case "medium":
+        return "🟡";
+      case "hard":
+        return "🔴";
+      default:
+        return "❓";
+    }
   };
 
   // Show loading state
@@ -136,6 +178,15 @@ export const QuizComponent = () => {
   if (!isQuizStarted && collectionName && !uploadLoading) {
     return (
       <div className="flex justify-center items-center min-h-screen bg-gradient-to-br from-blue-500 to-purple-600 p-4">
+        {/* Close button - top right */}
+        <button 
+          className="fixed top-6 right-6 text-white text-3xl hover:scale-125 transition-transform z-50"
+          onClick={deleteCollectionAndReset}
+          title="Close and delete collection"
+        >
+          ✕
+        </button>
+
         <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-12 text-center animate-in fade-in duration-500">
           <div className="text-8xl mb-6">🎯</div>
           <h1 className="text-4xl font-bold text-gray-900 mb-8">Ready to Quiz!</h1>
@@ -203,22 +254,24 @@ export const QuizComponent = () => {
     );
   }
 
-  // Show quiz completion state
+  // Show quiz report if available
+  if (quizReport) {
+    return <QuizReportComponent report={quizReport} onNewQuiz={startNewQuiz} />;
+  }
+
+  // Show quiz completion state (loading report)
   if (quizState.status === "completed") {
     return (
       <div className="flex justify-center items-center min-h-screen bg-gradient-to-br from-blue-500 to-purple-600 p-4">
         <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-16 text-center animate-in fade-in duration-500">
-          <div className="text-8xl mb-6">🎉</div>
-          <h1 className="text-3xl font-bold text-gray-900 mb-3">Quiz Completed!</h1>
+          <div className="text-6xl mb-6">⏳</div>
+          <h1 className="text-3xl font-bold text-gray-900 mb-3">Loading Your Report...</h1>
           <p className="text-gray-600 text-base mb-8">
-            Great job! You've finished all the questions.
+            Generating your comprehensive quiz report...
           </p>
-          <button 
-            className="w-full bg-gradient-to-r from-blue-500 to-purple-600 text-white font-bold py-3 rounded-lg hover:shadow-lg transition-all duration-300 transform hover:-translate-y-1"
-            onClick={handleRetry}
-          >
-            Start New Quiz
-          </button>
+          <div className="flex justify-center">
+            <div className="w-12 h-12 border-4 border-blue-200 border-t-blue-500 rounded-full animate-spin"></div>
+          </div>
         </div>
       </div>
     );
@@ -230,12 +283,22 @@ export const QuizComponent = () => {
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden animate-in fade-in duration-500">
         {/* Header */}
         <div className="bg-gradient-to-r from-blue-500 to-purple-600 text-white px-8 py-6 flex justify-between items-center">
-          <div className="bg-white bg-opacity-20 text-white text-xs font-bold uppercase tracking-wider py-2 px-4 rounded-full">
-            Quiz
+          <div className="flex gap-3 items-center flex-wrap">
+            <div className="bg-white bg-opacity-20 text-black text-xs font-bold uppercase tracking-wider py-2 px-4 rounded-full">
+              Quiz
+            </div>
+            {quizState.topic && (
+              <div className="bg-white bg-opacity-20 text-black text-xs font-bold uppercase tracking-wider py-2 px-4 rounded-full">
+                📚 {quizState.topic}
+              </div>
+            )}
+            <div className={getDifficultyStyles(quizState.difficulty)}>
+              {getDifficultyEmoji(quizState.difficulty)} {quizState.difficulty || "Loading"}
+            </div>
           </div>
           <button 
             className="text-white text-2xl hover:scale-125 transition-transform"
-            onClick={handleRetry}
+            onClick={goBackToTopicSelection}
             title="Exit Quiz"
           >
             ✕

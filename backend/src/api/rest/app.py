@@ -14,6 +14,7 @@ def create_app():
     # Register routers
     app.include_router(quiz_router)
     
+    
     # Health check endpoint
     
     return app

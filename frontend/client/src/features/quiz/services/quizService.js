@@ -98,4 +98,53 @@ export const quizService = {
       throw error;
     }
   },
+
+  /**
+   * Delete a collection from ChromaDB
+   * @param {string} collectionName - The collection name to delete
+   * @returns {Promise<{success, message}>}
+   */
+  deleteCollection: async (collectionName) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/delete-collection/${collectionName}`, {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to delete collection: ${response.statusText}`);
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error("Error deleting collection:", error);
+      throw error;
+    }
+  },
+
+  /**
+   * Get the quiz report after quiz completion
+   * @returns {Promise<{success, report, error}>}
+   */
+  getReport: async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/report`, {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to get report: ${response.statusText}`);
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error("Error getting report:", error);
+      throw error;
+    }
+  },
 };

@@ -138,7 +138,7 @@ THREAD_CONFIG = {"configurable": {"thread_id": "single-user-session"}}
 class QuizService:
 
     @staticmethod
-    @traceable(name="start_quiz_session", description="Initialize a new quiz session")
+    # @traceable(name="start_quiz_session", description="Initialize a new quiz session")
     def start_session(collection_name: str = None, topic: Optional[str] = None, 
                      num_chunks: int = 5) -> Dict[str, Any]:
         try:
@@ -163,9 +163,29 @@ class QuizService:
                     # Extract chunk content for the graph to use
                     chunks = result.get("results", [])
                     initial_state["topic_chunks"] = [chunk["content"] for chunk in chunks]
+                    
+                    # Check if topic_chunks is empty
+                    if not initial_state["topic_chunks"]:
+                        return {
+                            "question": "",
+                            "options": [],
+                            "hint": f"❌ Topic '{topic}' not found in PDF. Please try another topic or generate quiz from all content.",
+                            "hint_attempt": 0,
+                            "status": "error",
+                            "difficulty": "easy",
+                        }
+                    
                     print(f"📚 Loaded {len(chunks)} chunks for topic: {topic}")
                 else:
-                    print(f"⚠️ Warning: Could not fetch topic chunks: {result.get('error')}")
+                    error_msg = result.get('error', 'Unknown error')
+                    return {
+                        "question": "",
+                        "options": [],
+                        "hint": f"❌ Topic '{topic}' not found in PDF. Error: {error_msg}",
+                        "hint_attempt": 0,
+                        "status": "error",
+                        "difficulty": "easy",
+                    }
             
             quiz_graph.invoke(
                 initial_state,
@@ -195,12 +215,14 @@ class QuizService:
                 "hint": interrupt_data.get("hint", ""),
                 "hint_attempt": interrupt_data.get("hint_attempt", 0),
                 "status": "awaiting_answer",
+                "difficulty": interrupt_data.get("difficulty", "easy"),
+                "topic":interrupt_data.get("topic","")
             }
         except Exception as e:
             raise RuntimeError(f"Error starting quiz: {e}")
 
     @staticmethod
-    @traceable(name="submit_quiz_answer", description="Submit user answer and get next question")
+    # @traceable(name="submit_quiz_answer", description="Submit user answer and get next question")
     def submit_answer(answer: str) -> Dict[str, Any]:
         try:
             quiz_graph.invoke(
@@ -226,6 +248,123 @@ class QuizService:
                 "hint": interrupt_data.get("hint", ""),
                 "hint_attempt": interrupt_data.get("hint_attempt", 0),
                 "status": "awaiting_answer",
+                "difficulty": interrupt_data.get("difficulty", "easy"),
+                "topic":interrupt_data.get("topic","")
             }
         except Exception as e:
             raise RuntimeError(f"Error submitting answer: {e}")
+
+    @staticmethod
+    def get_quiz_report() -> Dict[str, Any]:
+        """Get the report for the completed quiz session.
+        
+        Calculates:
+        - Total questions and correct answers
+        - Score percentage
+        - Questions answered incorrectly on first try
+        - For topic-based quiz: Only shows selected topic
+        - For general quiz: Shows strong and weak topics
+        
+        Returns:
+            Dictionary with report data including all questions, scores, and topic analysis
+        """
+        global quiz_graph
+        
+        if not quiz_graph:
+            return {
+                "success": False,
+                "error": "No active quiz session. Start a new session first."
+            }
+        
+        try:
+            # Get current state
+            current_state = quiz_graph.get_state(THREAD_CONFIG)
+            
+            if not current_state:
+                return {
+                    "success": False,
+                    "error": "Quiz session not found."
+                }
+            
+            state_values = current_state.values if hasattr(current_state, 'values') else current_state
+            
+            # Extract quiz data from state
+            quiz_history = state_values.get("quiz_history", [])
+            question_count = state_values.get("question_count", 0)
+            # wrong_on_first_try_count = state_values.get("wrong_on_first_try_count", 0)
+            is_topic_based = bool(state_values.get("topic", ""))
+            selected_topic = state_values.get("topic", "")
+            
+            # Calculate scores
+            correct_count = sum(1 for q in quiz_history if q.get("is_correct", False))
+            wrong_count = question_count - correct_count
+            score_percentage = (correct_count / question_count * 100) if question_count > 0 else 0
+            
+            # Calculate wrong on first try percentage
+            # wrong_on_first_try_percentage = (wrong_on_first_try_count / wrong_count * 100) if wrong_count > 0 else 0
+            
+            # Calculate topic scores only for general quiz (no specific topic selected)
+            strong_topics = None
+            weak_topics = None
+            
+            if not is_topic_based and quiz_history:
+                # Group by topic
+                topics_data = {}
+                for q in quiz_history:
+                    topic = q.get("topic", "Unknown")
+                    if topic not in topics_data:
+                        topics_data[topic] = {"correct": 0, "total": 0}
+                    topics_data[topic]["total"] += 1
+                    if q.get("is_correct", False):
+                        topics_data[topic]["correct"] += 1
+                
+                # Calculate percentages and sort
+                topic_scores = []
+                for topic, data in topics_data.items():
+                    percentage = (data["correct"] / data["total"] * 100) if data["total"] > 0 else 0
+                    topic_scores.append({
+                        "topic": topic,
+                        "total_questions": data["total"],
+                        "correct_answers": data["correct"],
+                        "score_percentage": round(percentage, 2)
+                    })
+                
+                # Separate strong and weak topics (70% or higher = strong, below 50% = weak)
+                strong_topics = [t for t in topic_scores if t["score_percentage"] >= 70]
+                weak_topics = [t for t in topic_scores if t["score_percentage"] < 70]
+                
+                # Sort by percentage
+                strong_topics = sorted(strong_topics, key=lambda x: x["score_percentage"], reverse=True)
+                weak_topics = sorted(weak_topics, key=lambda x: x["score_percentage"])
+            
+            # Build report
+            # Filter questions answered wrong on first try
+            # wrong_on_first_try_questions = [
+            #     q for q in quiz_history if q.get("wrong_on_first_try", False)
+            # ]
+            
+            report = {
+                "total_questions": question_count,
+                "correct_answers": correct_count,
+                "wrong_answers": wrong_count,
+                "score_percentage": round(score_percentage, 2),
+                # "wrong_on_first_try_count": wrong_on_first_try_count,
+                # "wrong_on_first_try_percentage": round(wrong_on_first_try_percentage, 2),
+                "is_topic_based": is_topic_based,
+                "selected_topic": selected_topic if is_topic_based else None,
+                "strong_topics": strong_topics,
+                "weak_topics": weak_topics,
+                # "wrong_on_first_try_questions": wrong_on_first_try_questions,
+                "questions": quiz_history
+            }
+            
+            return {
+                "success": True,
+                "report": report
+            }
+            
+        except Exception as e:
+            return {
+                "success": False,
+                "error": f"Error generating report: {str(e)}"
+            }
