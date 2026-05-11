@@ -138,7 +138,7 @@ THREAD_CONFIG = {"configurable": {"thread_id": "single-user-session"}}
 class QuizService:
 
     @staticmethod
-    # @traceable(name="start_quiz_session", description="Initialize a new quiz session")
+    @traceable(name="start_quiz_session", description="Initialize a new quiz session")
     def start_session(collection_name: str = None, topic: Optional[str] = None, 
                      num_chunks: int = 5) -> Dict[str, Any]:
         try:
@@ -222,7 +222,7 @@ class QuizService:
             raise RuntimeError(f"Error starting quiz: {e}")
 
     @staticmethod
-    # @traceable(name="submit_quiz_answer", description="Submit user answer and get next question")
+    @traceable(name="submit_quiz_answer", description="Submit user answer and get next question")
     def submit_answer(answer: str) -> Dict[str, Any]:
         try:
             quiz_graph.invoke(
@@ -255,6 +255,7 @@ class QuizService:
             raise RuntimeError(f"Error submitting answer: {e}")
 
     @staticmethod
+
     def get_quiz_report() -> Dict[str, Any]:
         """Get the report for the completed quiz session.
         

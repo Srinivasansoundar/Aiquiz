@@ -127,7 +127,7 @@ def load_next_chunk_node(state: QuizState) -> QuizState:
             collection = collections[0]
         
         cursor = state.get("chunk_cursor", 0)
-        result = collection.get(offset=cursor, limit=2, include=["documents","metadatas"])
+        result = collection.get(offset=cursor, limit=1, include=["documents","metadatas"])
         docs = result.get("documents", [])
         metadatas = result.get("metadatas", [])
         new_cursor = cursor + len(docs)
@@ -322,48 +322,6 @@ def route_based_answer(state: QuizState) -> str:
         else:
             # After 3 wrong attempts, record as wrong and move to next question
             return "record_answer_to_history"
-
-
-# def retrieve_context_node(state: QuizState) -> QuizState:
-#     """Perform similarity search in ChromaDB using the question text.
-    
-#     Retrieves relevant context documents from ChromaDB that are semantically
-#     similar to the user's incorrect answer or the question itself.
-#     Stores results in state["retrieved_context"].
-#     """
-#     client = chromadb.PersistentClient(path=str(CHROMA_DIR))
-#     collection = client.list_collections()[0]
-    
-#     # Get the question text to use as search query
-#     question_text = state.get("current_question", {}).get("question", "")
-    
-#     if not question_text:
-#         # Fallback: use user answer if question is not available
-#         question_text = state.get("user_answer", "")
-    
-#     if not question_text:
-#         # If no search text, return empty context
-#         state["retrieved_context"] = []
-#         return state
-    
-#     # Perform similarity search with query
-#     # query() returns documents similar to the query text
-#     try:
-#         search_results = collection.query(
-#             query_texts=[question_text],
-#             n_results=3,  # Get top 3 similar documents
-#             include=["documents"]
-#         )
-        
-#         # Extract documents from results
-#         retrieved_docs = search_results.get("documents", [[]])[0]
-#         state["retrieved_context"] = retrieved_docs
-        
-#     except Exception as e:
-#         print(f"Error during similarity search: {e}")
-#         state["retrieved_context"] = []
-    
-#     return state
 
 
 def generate_hint_node(state: QuizState) -> QuizState:
